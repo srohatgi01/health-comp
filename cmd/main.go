@@ -18,64 +18,9 @@ import (
 	"github.com/srohatgi/health-comp/clients"
 	"github.com/srohatgi/health-comp/config"
 	"github.com/srohatgi/health-comp/constants"
-	_ "modernc.org/sqlite"
+	"github.com/srohatgi/health-comp/models"
+	"github.com/srohatgi/health-comp/repositories"
 )
-
-// 1. Initialize the DB and add sample data
-func setupDatabase() *sql.DB {
-	db, err := sql.Open("sqlite", "./health.db")
-	if err != nil {
-		log.Fatalf("Error opening database: %v", err)
-	}
-
-	// Create the health_logs table
-	createTableSQL := `
-	CREATE TABLE IF NOT EXISTS health_logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-		metric_type TEXT,
-		value REAL,
-		unit TEXT,
-		context TEXT
-	);`
-	_, err = db.Exec(createTableSQL)
-	if err != nil {
-		log.Fatalf("Error creating table: %v", err)
-	}
-
-	// Insert sample data starting from mid-February
-	insertSampleData(db)
-
-	return db
-}
-
-func insertSampleData(db *sql.DB) {
-	// Let's add some simulated daily post-gym weights
-	// We use "INSERT OR IGNORE" logic conceptually here, but for simplicity, we'll just clear and re-insert
-	db.Exec("DELETE FROM health_logs")
-
-	logs := []struct {
-		date   string
-		metric string
-		value  float64
-		unit   string
-		ctx    string
-	}{
-		{"2026-02-12 18:30:00", "weight", 76.2, "kg", "post-gym"},
-		{"2026-02-13 18:45:00", "weight", 76.0, "kg", "post-gym"},
-		{"2026-02-15 19:00:00", "weight", 75.8, "kg", "post-gym"},
-		{"2026-02-18 18:30:00", "weight", 75.5, "kg", "post-gym"},
-		{"2026-02-21 18:20:00", "weight", 75.3, "kg", "post-gym"},
-	}
-
-	for _, log := range logs {
-		_, err := db.Exec("INSERT INTO health_logs (timestamp, metric_type, value, unit, context) VALUES (?, ?, ?, ?, ?)",
-			log.date, log.metric, log.value, log.unit, log.ctx)
-		if err != nil {
-			fmt.Printf("Error inserting data: %v\n", err)
-		}
-	}
-}
 
 // 2. The Tool Function: This is what gets executed when Ollama calls "query_daily_logs"
 func queryDailyLogs(db *sql.DB, metricType string, daysBack int) string {
@@ -85,7 +30,7 @@ func queryDailyLogs(db *sql.DB, metricType string, daysBack int) string {
 	// Query the average value for that metric over the requested timeframe
 	query := `
 		SELECT AVG(value), COUNT(value), unit 
-		FROM health_logs 
+		FROM body_metrics 
 		WHERE metric_type = ? AND timestamp >= ?
 	`
 
@@ -165,10 +110,23 @@ func main() {
 
 }
 
+func initializeDB() *sql.DB {
+	db, err := config.InitSqlite("app.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := config.RunMigrations(db); err != nil {
+		log.Fatal(err)
+	}
+
+	return db
+}
+
 func Process() {
 
 	// Initialize the database connection
-	db := setupDatabase()
+	db := initializeDB()
 	defer db.Close()
 
 	// create tool menu
@@ -198,7 +156,7 @@ func Process() {
 			Model:  "llama3.1",
 			Stream: false,
 			Messages: []clients.Message{
-				{Role: "user", Content: "What is my average weight over the last 7 days, and can I safely eat a extra cheeze large pizza?"},
+				{Role: "user", Content: userInput},
 			},
 			Tools: myTools,
 		}
@@ -229,6 +187,24 @@ func Process() {
 
 			// THE DISPATCHER: Route the string name to the actual Go function
 			switch toolName {
+
+			case "add_weight":
+				weightValue := args["weight_value"].(float64)
+
+				fmt.Printf("Extracted weight %f from the chat. Adding to the SQLite Database", weightValue)
+
+				bodyMetricsRepo := repositories.NewBodyMetricsRepo(db)
+				err := bodyMetricsRepo.Create(&models.BodyMetrics{
+					MetricName: "weight",
+					Unit:       "kg",
+					Value:      weightValue,
+				})
+				if err != nil {
+					fmt.Print("Could not add weight to the database: ", err)
+					continue
+				}
+
+				fmt.Println("Added Weight successfully to the database")
 
 			case "query_daily_logs":
 				// 1. Extract and cast the arguments from the JSON map
