@@ -68,6 +68,20 @@ func CreateToolMenu() []Tool {
 		{
 			Type: "function",
 			Function: ToolFunction{
+				Name:        "add_weight",
+				Description: "Whenever user asks to add/log/track/record body weight, add it to the sqllite database",
+				Parameters: ToolParameters{
+					Type: "object",
+					Properties: map[string]Property{
+						"weight_value": {Type: "float", Description: "The body weight that needs to be added (e.g. 75.43, 89.43, 90)"},
+					},
+					Required: []string{"weight_value"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
 				Name:        "query_health_rules",
 				Description: "Search the Pinecone database for dietary rules or nutrition facts about specific foods.",
 				Parameters: ToolParameters{
