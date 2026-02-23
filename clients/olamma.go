@@ -8,8 +8,16 @@ type ChatRequest struct {
 }
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"` // Added this!
+}
+
+type ToolCall struct {
+	Function struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments"`
+	} `json:"function"`
 }
 
 type Tool struct {
@@ -36,16 +44,7 @@ type Property struct {
 
 // 2. Define the response structure to catch the AI's decision
 type ChatResponse struct {
-	Message struct {
-		Role      string `json:"role"`
-		Content   string `json:"content"`
-		ToolCalls []struct {
-			Function struct {
-				Name      string                 `json:"name"`
-				Arguments map[string]interface{} `json:"arguments"`
-			} `json:"function"`
-		} `json:"tool_calls"`
-	} `json:"message"`
+	Message Message `json:"message"` // Use the unified Message struct here
 }
 
 func CreateToolMenu() []Tool {
@@ -77,6 +76,13 @@ func CreateToolMenu() []Tool {
 					},
 					Required: []string{"weight_value"},
 				},
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        "fetch_diet_plan",
+				Description: "Fetch the user's diet plan",
 			},
 		},
 		{

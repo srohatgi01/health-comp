@@ -81,12 +81,11 @@ func main() {
 	if err != nil {
 		fmt.Print("Unable to fetch the index")
 	}
-	_ = idx
 
 	fmt.Println("🤖 Health Assistant DB Connected! Type 'exit' to quit.")
 	fmt.Println("-----------------------------------------------------")
 
-	Process()
+	Process(ctx, idx)
 
 	// question := "Sarthak Rohatgi, Swiggy, India, Java, GoLang, Finance"
 	// searchReq := pinecone.SearchRecordsRequest{
@@ -123,119 +122,137 @@ func initializeDB() *sql.DB {
 	return db
 }
 
-func Process() {
-
-	// Initialize the database connection
+func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection) {
+	// 1. Setup Local DB and Tools
 	db := initializeDB()
 	defer db.Close()
-
-	// create tool menu
 	myTools := clients.CreateToolMenu()
-
 	reader := bufio.NewReader(os.Stdin)
+
+	// This slice will maintain the context of the conversation
+	var history []clients.Message
 
 	fmt.Println("🤖 Welcome to Karetaker! Type 'exit' to quit.")
 	fmt.Println("-----------------------------------------------------")
 
-	// 2. Start the Chat Loop
 	for {
 		fmt.Print("\nYou: ")
-
-		// Wait for the user to type something and press Enter
 		userInput, _ := reader.ReadString('\n')
 		userInput = strings.TrimSpace(userInput)
 
-		// Allow the user to quit the program
 		if userInput == "exit" || userInput == "quit" {
 			fmt.Println("Goodbye!")
 			break
 		}
 
-		// create olamma request
+		// Append user message to history
+		history = append(history, clients.Message{Role: "user", Content: userInput})
+
+		// --- STEP 1: First Pass (Request Tool Call) ---
 		reqBody := clients.ChatRequest{
-			Model:  "llama3.1",
-			Stream: false,
-			Messages: []clients.Message{
-				{Role: "user", Content: userInput},
-			},
-			Tools: myTools,
+			Model:    "llama3.1",
+			Stream:   false,
+			Messages: history,
+			Tools:    myTools,
 		}
 
-		jsonData, _ := json.Marshal(reqBody)
-
-		// Step C: Send to your local Ollama server
-		resp, err := http.Post("http://localhost:11434/api/chat", "application/json", bytes.NewBuffer(jsonData))
+		chatResp, err := callOllama(reqBody)
 		if err != nil {
-			log.Fatalf("Failed to connect to Ollama. Is it running? Error: %v", err)
+			fmt.Println("Error calling Ollama:", err)
+			continue
 		}
-		defer resp.Body.Close()
 
-		body, _ := io.ReadAll(resp.Body)
+		// --- STEP 2: Check for Tool Calls ---
+		if len(chatResp.Message.ToolCalls) > 0 {
+			// Add the Assistant's tool request to history
+			history = append(history, chatResp.Message)
 
-		var chatResp clients.ChatResponse
-		json.Unmarshal(body, &chatResp)
+			fmt.Println("🤖 Thinking... (Using tools)")
 
-		fmt.Println("🤖 The AI decided to use the following tools:")
-		fmt.Println("---------------------------------------------")
+			for _, toolCall := range chatResp.Message.ToolCalls {
+				toolName := toolCall.Function.Name
+				args := toolCall.Function.Arguments
+				var toolOutput string
 
-		var finalDatabaseResult string
-		for _, toolCall := range chatResp.Message.ToolCalls {
-			toolName := toolCall.Function.Name
-			args := toolCall.Function.Arguments // This is a map[string]interface{}
+				switch toolName {
+				case "add_weight":
+					weightValue := args["weight_value"].(float64)
+					repo := repositories.NewBodyMetricsRepo(db)
+					err := repo.Create(&models.BodyMetrics{
+						MetricName: "weight",
+						Unit:       "kg",
+						Value:      weightValue,
+					})
+					if err != nil {
+						toolOutput = "Error saving weight to database."
+					} else {
+						toolOutput = fmt.Sprintf("Successfully recorded weight: %.2f kg", weightValue)
+					}
 
-			fmt.Printf("-> Intercepted tool request: %s\n", toolName)
+				case "fetch_diet_plan":
+					// Pinecone Fetch (v4 SDK)
+					resp, err := defaultIndex.FetchVectors(ctx, []string{constants.DietPlanRecordId})
+					if err != nil || len(resp.Vectors) == 0 {
+						toolOutput = "Could not find a diet plan in the database."
+					} else {
+						// Extracting string from Pinecone Metadata Struct
+						val := resp.Vectors[constants.DietPlanRecordId].Metadata.Fields["text"].GetStringValue()
+						toolOutput = "User's Diet Plan: " + val
+					}
 
-			// THE DISPATCHER: Route the string name to the actual Go function
-			switch toolName {
+				case "query_daily_logs":
+					metricType := args["metric_type"].(string)
+					days := int(args["days_back"].(float64))
+					toolOutput = queryDailyLogs(db, metricType, days)
 
-			case "add_weight":
-				weightValue := args["weight_value"].(float64)
-
-				fmt.Printf("Extracted weight %f from the chat. Adding to the SQLite Database", weightValue)
-
-				bodyMetricsRepo := repositories.NewBodyMetricsRepo(db)
-				err := bodyMetricsRepo.Create(&models.BodyMetrics{
-					MetricName: "weight",
-					Unit:       "kg",
-					Value:      weightValue,
-				})
-				if err != nil {
-					fmt.Print("Could not add weight to the database: ", err)
-					continue
+				default:
+					toolOutput = "Tool not found."
 				}
 
-				fmt.Println("Added Weight successfully to the database")
-
-			case "query_daily_logs":
-				// 1. Extract and cast the arguments from the JSON map
-				// Note: JSON numbers always decode as float64 in Go interfaces, so we cast to int
-				metricType := args["metric_type"].(string)
-				daysBackFloat := args["days_back"].(float64)
-				daysBack := int(daysBackFloat)
-
-				fmt.Printf("-> Executing SQLite search for %s over %d days...\n", metricType, daysBack)
-
-				// 2. CALL THE ACTUAL FUNCTION
-				// (Assuming you initialized your 'db' connection earlier in main)
-				finalDatabaseResult = queryDailyLogs(db, metricType, daysBack)
-
-			case "query_health_rules":
-				// 1. Extract the argument
-				foodName := args["food_name"].(string)
-
-				fmt.Printf("-> Executing Pinecone search for %s...\n", foodName)
-
-				// 2. CALL THE ACTUAL FUNCTION
-				// (This would be your Pinecone SearchRecords function we wrote earlier)
-				// finalDatabaseResult = queryPineconeRules(idx, foodName)
-
-				finalDatabaseResult = "Simulated Pinecone result: " + foodName + " is safe."
-
-			default:
-				fmt.Printf("-> AI tried to call an unknown tool: %s\n", toolName)
+				// Append the tool's output to history with role "tool"
+				history = append(history, clients.Message{
+					Role:    "tool",
+					Content: toolOutput,
+				})
 			}
-		}
 
-		fmt.Println("Database returned:", finalDatabaseResult)
+			// --- STEP 3: Second Pass (Final Response) ---
+			// Now that history has the tool output, Ollama will summarize it
+			finalReq := clients.ChatRequest{
+				Model:    "llama3.1",
+				Stream:   false,
+				Messages: history,
+			}
+
+			finalResp, err := callOllama(finalReq)
+			if err != nil {
+				fmt.Println("Error in final summary:", err)
+				continue
+			}
+
+			fmt.Printf("\n🤖 Karetaker: %s\n", finalResp.Message.Content)
+			history = append(history, finalResp.Message)
+
+		} else {
+			// No tools needed, just print the direct response
+			fmt.Printf("\n🤖 Karetaker: %s\n", chatResp.Message.Content)
+			history = append(history, chatResp.Message)
+		}
 	}
+}
+
+// Helper function to keep the loop clean
+func callOllama(req clients.ChatRequest) (clients.ChatResponse, error) {
+	var chatResp clients.ChatResponse
+	jsonData, _ := json.Marshal(req)
+
+	resp, err := http.Post("http://localhost:11434/api/chat", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return chatResp, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	err = json.Unmarshal(body, &chatResp)
+	return chatResp, err
 }
