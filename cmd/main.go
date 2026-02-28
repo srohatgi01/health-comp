@@ -200,11 +200,9 @@ func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection) {
 						toolOutput = "User's Diet Plan: " + val
 					}
 
-				case "query_daily_logs":
-					metricType := args["metric_type"].(string)
-					days := int(args["days_back"].(float64))
-					toolOutput = queryDailyLogs(db, metricType, days)
-
+				case "query_date_time_details":
+					// fetch and return the current date time in epoch
+					toolOutput = fmt.Sprintf("Time: ", time.Now().String(), " Weekday: ", time.Now().Weekday())
 				default:
 					toolOutput = "Tool not found."
 				}

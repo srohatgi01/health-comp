@@ -52,16 +52,8 @@ func CreateToolMenu() []Tool {
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "query_daily_logs",
-				Description: "Get the user's logged numeric metrics like weight from the SQLite database.",
-				Parameters: ToolParameters{
-					Type: "object",
-					Properties: map[string]Property{
-						"metric_type": {Type: "string", Description: "The metric to look up (e.g., 'weight', 'water')"},
-						"days_back":   {Type: "integer", Description: "How many days of history to retrieve"},
-					},
-					Required: []string{"metric_type", "days_back"},
-				},
+				Name:        "query_date_time_details",
+				Description: "Get System Date/Time/Weekday if asked for now, today, tonight, right now, etc",
 			},
 		},
 		{
@@ -82,7 +74,7 @@ func CreateToolMenu() []Tool {
 			Type: "function",
 			Function: ToolFunction{
 				Name:        "fetch_diet_plan",
-				Description: "Fetch the user's diet plan",
+				Description: "Fetch the user's diet plan whenever asked or when user what's to know what to eat or what is for dinner/lunch/breakfast, snack etc.",
 			},
 		},
 		{
