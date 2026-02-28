@@ -3,8 +3,8 @@ module github.com/srohatgi/health-comp
 go 1.24.0
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/pinecone-io/go-pinecone/v4 v4.1.4
+	modernc.org/sqlite v1.46.1
 )
 
 require (
@@ -27,6 +27,8 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
+	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/net v0.38.0 // indirect
@@ -41,5 +43,4 @@ require (
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.46.1 // indirect
 )

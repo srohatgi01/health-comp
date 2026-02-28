@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/srohatgi/health-comp/constants"
 	"github.com/srohatgi/health-comp/models"
 	"github.com/srohatgi/health-comp/repositories"
+	"go.uber.org/zap"
 )
 
 // 2. The Tool Function: This is what gets executed when Ollama calls "query_daily_logs"
@@ -55,37 +55,44 @@ func queryDailyLogs(db *sql.DB, metricType string, daysBack int) string {
 }
 
 func main() {
+	logger, err := config.NewLogger()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
 	ctx := context.Background()
 	cfg := config.Load()
 	if cfg == nil {
-		fmt.Println("Config Load Unsuccessful", nil)
+		logger.Fatal("config load unsuccessful")
 	}
 
-	fmt.Println("✅ SQLite Database created and populated.")
+	logger.Info("application config loaded")
 
 	// Initialize New Pinecone client
 	pineconeClient, err := pinecone.NewClient(pinecone.NewClientParams{
 		ApiKey: cfg.PineconeKey,
 	})
 	if err != nil {
-		fmt.Println("Error Creating Pinecone client")
+		logger.Fatal("error creating pinecone client", zap.Error(err))
 	}
 
 	// Describe Index
 	index, err := pineconeClient.DescribeIndex(ctx, constants.PineConeIndex)
 	if err != nil {
-		fmt.Print("Unable to describe the index")
+		logger.Fatal("unable to describe the index", zap.Error(err))
 	}
 
 	idx, err := pineconeClient.Index(pinecone.NewIndexConnParams{Host: index.Host})
 	if err != nil {
-		fmt.Print("Unable to fetch the index")
+		logger.Fatal("unable to connect to the index", zap.Error(err))
 	}
 
 	fmt.Println("🤖 Health Assistant DB Connected! Type 'exit' to quit.")
 	fmt.Println("-----------------------------------------------------")
 
-	Process(ctx, idx)
+	Process(ctx, idx, logger)
 
 	// question := "Sarthak Rohatgi, Swiggy, India, Java, GoLang, Finance"
 	// searchReq := pinecone.SearchRecordsRequest{
@@ -109,22 +116,22 @@ func main() {
 
 }
 
-func initializeDB() *sql.DB {
+func initializeDB(logger *zap.Logger) *sql.DB {
 	db, err := config.InitSqlite("app.db")
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal("failed to initialize sqlite", zap.Error(err))
 	}
 
 	if err := config.RunMigrations(db); err != nil {
-		log.Fatal(err)
+		logger.Fatal("failed to run migrations", zap.Error(err))
 	}
 
 	return db
 }
 
-func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection) {
+func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection, logger *zap.Logger) {
 	// 1. Setup Local DB and Tools
-	db := initializeDB()
+	db := initializeDB(logger)
 	defer db.Close()
 	myTools := clients.CreateToolMenu()
 	reader := bufio.NewReader(os.Stdin)
@@ -202,7 +209,7 @@ func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection) {
 
 				case "query_date_time_details":
 					// fetch and return the current date time in epoch
-					toolOutput = fmt.Sprintf("Time: ", time.Now().String(), " Weekday: ", time.Now().Weekday())
+					toolOutput = fmt.Sprintf("Time: %s Weekday: %s", time.Now().String(), time.Now().Weekday())
 				default:
 					toolOutput = "Tool not found."
 				}
