@@ -17,6 +17,7 @@ import (
 	"github.com/srohatgi/health-comp/clients"
 	"github.com/srohatgi/health-comp/config"
 	"github.com/srohatgi/health-comp/constants"
+	"github.com/srohatgi/health-comp/log"
 	"github.com/srohatgi/health-comp/models"
 	"github.com/srohatgi/health-comp/repositories"
 	"go.uber.org/zap"
@@ -55,44 +56,43 @@ func queryDailyLogs(db *sql.DB, metricType string, daysBack int) string {
 }
 
 func main() {
-	logger, err := config.NewLogger()
-	if err != nil {
+	if err := log.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer logger.Sync()
+	defer log.Sync()
 
 	ctx := context.Background()
 	cfg := config.Load()
 	if cfg == nil {
-		logger.Fatal("config load unsuccessful")
+		log.Fatal("config load unsuccessful")
 	}
 
-	logger.Info("application config loaded")
+	log.Info("application config loaded")
 
 	// Initialize New Pinecone client
 	pineconeClient, err := pinecone.NewClient(pinecone.NewClientParams{
 		ApiKey: cfg.PineconeKey,
 	})
 	if err != nil {
-		logger.Fatal("error creating pinecone client", zap.Error(err))
+		log.Fatal("error creating pinecone client", zap.Error(err))
 	}
 
 	// Describe Index
 	index, err := pineconeClient.DescribeIndex(ctx, constants.PineConeIndex)
 	if err != nil {
-		logger.Fatal("unable to describe the index", zap.Error(err))
+		log.Fatal("unable to describe the index", zap.Error(err))
 	}
 
 	idx, err := pineconeClient.Index(pinecone.NewIndexConnParams{Host: index.Host})
 	if err != nil {
-		logger.Fatal("unable to connect to the index", zap.Error(err))
+		log.Fatal("unable to connect to the index", zap.Error(err))
 	}
 
 	fmt.Println("🤖 Health Assistant DB Connected! Type 'exit' to quit.")
 	fmt.Println("-----------------------------------------------------")
 
-	Process(ctx, idx, logger)
+	Process(ctx, idx)
 
 	// question := "Sarthak Rohatgi, Swiggy, India, Java, GoLang, Finance"
 	// searchReq := pinecone.SearchRecordsRequest{
@@ -116,22 +116,22 @@ func main() {
 
 }
 
-func initializeDB(logger *zap.Logger) *sql.DB {
+func initializeDB() *sql.DB {
 	db, err := config.InitSqlite("app.db")
 	if err != nil {
-		logger.Fatal("failed to initialize sqlite", zap.Error(err))
+		log.Fatal("failed to initialize sqlite", zap.Error(err))
 	}
 
 	if err := config.RunMigrations(db); err != nil {
-		logger.Fatal("failed to run migrations", zap.Error(err))
+		log.Fatal("failed to run migrations", zap.Error(err))
 	}
 
 	return db
 }
 
-func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection, logger *zap.Logger) {
+func Process(ctx context.Context, defaultIndex *pinecone.IndexConnection) {
 	// 1. Setup Local DB and Tools
-	db := initializeDB(logger)
+	db := initializeDB()
 	defer db.Close()
 	myTools := clients.CreateToolMenu()
 	reader := bufio.NewReader(os.Stdin)
