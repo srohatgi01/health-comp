@@ -15,6 +15,7 @@ import (
 
 	"github.com/pinecone-io/go-pinecone/v4/pinecone"
 	"github.com/srohatgi/health-comp/clients"
+	"github.com/srohatgi/health-comp/clients/gemini"
 	"github.com/srohatgi/health-comp/config"
 	"github.com/srohatgi/health-comp/constants"
 	"github.com/srohatgi/health-comp/log"
@@ -56,6 +57,7 @@ func queryDailyLogs(db *sql.DB, metricType string, daysBack int) string {
 }
 
 func main() {
+	// Initialize Logger
 	if err := log.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		os.Exit(1)
@@ -63,6 +65,12 @@ func main() {
 	defer log.Sync()
 
 	ctx := context.Background()
+
+	// Initialize Gemini Client
+	gemini := gemini.Init(&ctx)
+
+	_ = gemini
+
 	cfg := config.Load()
 	if cfg == nil {
 		log.Fatal("config load unsuccessful")
